@@ -8,6 +8,12 @@ import type { LayerRegistry } from '../layers/types';
 import { useDatasetStore } from '../state/datasetStore';
 import type { UserDataset } from '../data/types';
 import { getDatasetBounds } from '../data/geojson';
+import { activeDomain } from '../config/domains';
+import { useParcelStore } from '../state/parcelStore';
+
+const CADASTRE_SOURCE_ID = 'fr-cadastre-parcels';
+const CADASTRE_FILL_LAYER_ID = 'fr-cadastre-parcels-fill';
+const CADASTRE_LINE_LAYER_ID = 'fr-cadastre-parcels-line';
 
 type MainMapProps = {
   navigate: NavigateFunction;
@@ -16,17 +22,40 @@ type MainMapProps = {
 export function MainMap({ navigate }: MainMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  const datasetsRef = useRef<UserDataset[]>([]);
+  const parcelsRef = useRef<GeoJSON.FeatureCollection>({ type: 'FeatureCollection', features: [] });
+  const parcelsVisibleRef = useRef(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const registry = useMapStore((state) => state.registry);
   const center = useMapStore((state) => state.center);
   const zoom = useMapStore((state) => state.zoom);
   const visibleGroupIds = useMapStore((state) => state.visibleGroupIds);
+  const visibleGroupIdsRef = useRef<Set<string>>(visibleGroupIds);
   const setRegistry = useMapStore((state) => state.setRegistry);
   const setView = useMapStore((state) => state.setView);
   const setSelectedFeature = useMapStore((state) => state.setSelectedFeature);
   const datasets = useDatasetStore((state) => state.datasets);
   const fitDatasetId = useDatasetStore((state) => state.fitDatasetId);
   const consumeFitDataset = useDatasetStore((state) => state.consumeFitDataset);
+  const parcels = useParcelStore((state) => state.parcels);
+  const parcelsVisible = useParcelStore((state) => state.visible);
+  const loadParcels = useParcelStore((state) => state.loadParcels);
+
+  useEffect(() => {
+    datasetsRef.current = datasets;
+  }, [datasets]);
+
+  useEffect(() => {
+    parcelsRef.current = parcels;
+  }, [parcels]);
+
+  useEffect(() => {
+    parcelsVisibleRef.current = parcelsVisible;
+  }, [parcelsVisible]);
+
+  useEffect(() => {
+    visibleGroupIdsRef.current = visibleGroupIds;
+  }, [visibleGroupIds]);
 
   useEffect(() => {
     fetchLayerRegistry().then(setRegistry).catch((error: Error) => setLoadError(error.message));
@@ -40,7 +69,7 @@ export function MainMap({ navigate }: MainMapProps) {
       style: registry.style,
       center,
       zoom,
-      minZoom: 8,
+      minZoom: activeDomain.map.minZoom,
       hash: true,
     });
 
@@ -54,28 +83,41 @@ export function MainMap({ navigate }: MainMapProps) {
         const before = layer.before && map.getLayer(layer.before) ? layer.before : undefined;
         map.addLayer(layer.style, before);
       });
-      applyGroupVisibility(map, registry, visibleGroupIds);
+      if (activeDomain.id === 'fr-real-estate') {
+        addCadastreLayers(map, parcelsRef.current, parcelsVisibleRef.current);
+        void loadParcels(getMapBbox(map));
+      }
+      applyGroupVisibility(map, registry, visibleGroupIdsRef.current);
     });
 
     map.on('moveend', () => {
       const nextCenter = map.getCenter();
       setView([nextCenter.lng, nextCenter.lat], map.getZoom());
+      if (activeDomain.id === 'fr-real-estate') {
+        void loadParcels(getMapBbox(map));
+      }
     });
 
     map.on('click', (event) => {
-      const userDatasetLayerIds = getUserDatasetLayerIds(datasets).filter((layerId) => map.getLayer(layerId));
-      const interactiveLayers = [...userDatasetLayerIds, ...registry.clickableLayerIds.filter((layerId) => map.getLayer(layerId))];
+      const cadastreLayerIds = activeDomain.id === 'fr-real-estate' ? [CADASTRE_FILL_LAYER_ID].filter((layerId) => map.getLayer(layerId)) : [];
+      const userDatasetLayerIds = getUserDatasetLayerIds(datasetsRef.current).filter((layerId) => map.getLayer(layerId));
+      const interactiveLayers = [
+        ...cadastreLayerIds,
+        ...userDatasetLayerIds,
+        ...registry.clickableLayerIds.filter((layerId) => map.getLayer(layerId)),
+      ];
       const [feature] = map.queryRenderedFeatures(event.point, { layers: interactiveLayers });
       if (!feature) return;
 
       setSelectedFeature(feature as GeoJSON.Feature);
-      if (String(feature.layer.id).startsWith('user-data-')) return;
+      if (String(feature.layer.id).startsWith('user-data-') || feature.layer.id === CADASTRE_FILL_LAYER_ID) return;
       navigateToFeature(feature as GeoJSON.Feature, navigate);
     });
 
     map.on('mousemove', (event) => {
       const interactiveLayers = [
-        ...getUserDatasetLayerIds(datasets).filter((layerId) => map.getLayer(layerId)),
+        ...(activeDomain.id === 'fr-real-estate' ? [CADASTRE_FILL_LAYER_ID].filter((layerId) => map.getLayer(layerId)) : []),
+        ...getUserDatasetLayerIds(datasetsRef.current).filter((layerId) => map.getLayer(layerId)),
         ...registry.clickableLayerIds.filter((layerId) => map.getLayer(layerId)),
       ];
       const features = map.queryRenderedFeatures(event.point, { layers: interactiveLayers });
@@ -86,7 +128,7 @@ export function MainMap({ navigate }: MainMapProps) {
       map.remove();
       mapRef.current = null;
     };
-  }, [center, datasets, navigate, registry, setSelectedFeature, setView, visibleGroupIds, zoom]);
+  }, [loadParcels, navigate, registry, setSelectedFeature, setView]);
 
   useEffect(() => {
     if (!registry || !mapRef.current || !mapRef.current.isStyleLoaded()) return;
@@ -112,6 +154,12 @@ export function MainMap({ navigate }: MainMapProps) {
 
   useEffect(() => {
     const map = mapRef.current;
+    if (!map || !map.isStyleLoaded() || activeDomain.id !== 'fr-real-estate') return;
+    syncCadastreParcels(map, parcels, parcelsVisible);
+  }, [parcels, parcelsVisible]);
+
+  useEffect(() => {
+    const map = mapRef.current;
     if (!map || !fitDatasetId) return;
 
     const dataset = datasets.find((candidate) => candidate.id === fitDatasetId);
@@ -129,7 +177,7 @@ export function MainMap({ navigate }: MainMapProps) {
 
   const status = useMemo(() => {
     if (loadError) return loadError;
-    if (!registry) return 'Loading zoning layers';
+    if (!registry) return activeDomain.map.loadingLabel;
     return null;
   }, [loadError, registry]);
 
@@ -154,6 +202,67 @@ function applyGroupVisibility(map: MapLibreMap, registry: LayerRegistry, visible
 
 function hasSource(layer: unknown): layer is { source: string } {
   return typeof layer === 'object' && layer !== null && 'source' in layer && typeof layer.source === 'string';
+}
+
+function addCadastreLayers(map: MapLibreMap, parcels: GeoJSON.FeatureCollection, visible: boolean) {
+  if (!map.getSource(CADASTRE_SOURCE_ID)) {
+    map.addSource(CADASTRE_SOURCE_ID, {
+      type: 'geojson',
+      data: parcels,
+    });
+  }
+
+  const visibility = visible ? 'visible' : 'none';
+
+  if (!map.getLayer(CADASTRE_FILL_LAYER_ID)) {
+    map.addLayer({
+      id: CADASTRE_FILL_LAYER_ID,
+      type: 'fill',
+      source: CADASTRE_SOURCE_ID,
+      paint: {
+        'fill-color': '#d4a017',
+        'fill-opacity': 0.14,
+      },
+      layout: { visibility },
+    });
+  }
+
+  if (!map.getLayer(CADASTRE_LINE_LAYER_ID)) {
+    map.addLayer({
+      id: CADASTRE_LINE_LAYER_ID,
+      type: 'line',
+      source: CADASTRE_SOURCE_ID,
+      paint: {
+        'line-color': '#8a5d00',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.4, 18, 1.4],
+        'line-opacity': 0.8,
+      },
+      layout: { visibility },
+    });
+  }
+}
+
+function syncCadastreParcels(map: MapLibreMap, parcels: GeoJSON.FeatureCollection, visible: boolean) {
+  if (!map.getSource(CADASTRE_SOURCE_ID)) {
+    addCadastreLayers(map, parcels, visible);
+  }
+
+  const source = map.getSource(CADASTRE_SOURCE_ID);
+  if (source && 'setData' in source) {
+    (source as GeoJSONSource).setData(parcels);
+  }
+
+  const visibility = visible ? 'visible' : 'none';
+  [CADASTRE_FILL_LAYER_ID, CADASTRE_LINE_LAYER_ID].forEach((layerId) => {
+    if (map.getLayer(layerId)) {
+      map.setLayoutProperty(layerId, 'visibility', visibility);
+    }
+  });
+}
+
+function getMapBbox(map: MapLibreMap): [number, number, number, number] {
+  const bounds = map.getBounds();
+  return [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];
 }
 
 function syncUserDatasets(map: MapLibreMap, datasets: UserDataset[]) {

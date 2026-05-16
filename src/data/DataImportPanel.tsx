@@ -2,6 +2,7 @@ import { ChangeEvent, useRef } from 'react';
 import { importGeoJsonFile } from './geojson';
 import { uploadDataset } from './api';
 import { useDatasetStore } from '../state/datasetStore';
+import { activeDomain } from '../config/domains';
 
 const SUPPORTED_LOCAL_EXTENSIONS = ['.geojson', '.json'];
 const API_ONLY_EXTENSIONS = ['.zip', '.shp'];
@@ -37,7 +38,7 @@ export function DataImportPanel() {
         return;
       }
 
-      setImportError('Use GeoJSON now. Zipped Shapefile import is wired for the API boundary.');
+      setImportError(activeDomain.data.unsupportedText);
     } catch (error) {
       setImportError(error instanceof Error ? error.message : 'Unable to import this dataset.');
     }
@@ -46,13 +47,13 @@ export function DataImportPanel() {
   return (
     <section className="border-b border-zola-line px-4 py-3">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold uppercase tracking-normal text-zola-ink/70">My Data</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-normal text-zola-ink/70">{activeDomain.data.panelTitle}</h2>
         <button
           className="rounded border border-zola-accent px-2 py-1 text-xs font-semibold text-zola-accent"
           onClick={() => inputRef.current?.click()}
           type="button"
         >
-          Add
+          {activeDomain.data.addLabel}
         </button>
       </div>
       <input
@@ -62,10 +63,9 @@ export function DataImportPanel() {
         ref={inputRef}
         type="file"
       />
-      <p className="mt-2 text-xs leading-4 text-zola-ink/60">GeoJSON imports locally. Shapefiles are ready for the dataset API endpoint.</p>
+      <p className="mt-2 text-xs leading-4 text-zola-ink/60">{activeDomain.data.helperText}</p>
       {importStatus ? <p className="mt-2 text-xs text-zola-accent">{importStatus}</p> : null}
       {importError ? <p className="mt-2 text-xs text-red-700">{importError}</p> : null}
     </section>
   );
 }
-

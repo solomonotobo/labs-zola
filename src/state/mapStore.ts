@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { LayerRegistry, RegisteredLayerGroup } from '../layers/types';
+import { activeDomain } from '../config/domains';
 
 type MapStore = {
   center: [number, number];
@@ -16,8 +17,8 @@ type MapStore = {
 const params = new URLSearchParams(window.location.search);
 const layerParam = params.get('layers');
 const initialLayers = new Set(layerParam ? layerParam.split(',').filter(Boolean) : []);
-const initialCenter = parsePair(params.get('center')) ?? [-73.98, 40.705];
-const initialZoom = Number(params.get('zoom') ?? 12);
+const initialCenter = parsePair(params.get('center')) ?? activeDomain.map.center;
+const initialZoom = Number(params.get('zoom') ?? activeDomain.map.zoom);
 
 export const useMapStore = create<MapStore>((set, get) => ({
   center: initialCenter,

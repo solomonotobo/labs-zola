@@ -3,6 +3,7 @@ import { MainMap } from '../map/MainMap';
 import { Sidebar } from '../sidebar/Sidebar';
 import { SearchBox } from '../search/SearchBox';
 import { useUrlStateBridge } from '../state/urlState';
+import { activeDomain } from '../config/domains';
 
 export function App() {
   const navigate = useNavigate();
@@ -15,11 +16,14 @@ export function App() {
         <header className="border-b border-zola-line px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <a className="text-2xl font-semibold leading-none tracking-normal" href="/">
-              ZoLa
+              {activeDomain.brandName}
             </a>
             <nav className="flex gap-3 text-sm font-medium text-zola-accent">
-              <a href="/about">About</a>
-              <a href="/data">Data</a>
+              {activeDomain.nav.map((item) => (
+                <a href={item.href} key={item.href}>
+                  {item.label}
+                </a>
+              ))}
             </nav>
           </div>
           <SearchBox navigate={navigate} />

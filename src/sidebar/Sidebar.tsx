@@ -2,6 +2,8 @@ import { useMemo } from 'react';
 import { useMapStore } from '../state/mapStore';
 import { DataImportPanel } from '../data/DataImportPanel';
 import { useDatasetStore } from '../state/datasetStore';
+import { activeDomain } from '../config/domains';
+import { useParcelStore } from '../state/parcelStore';
 
 export function Sidebar() {
   const registry = useMapStore((state) => state.registry);
@@ -10,12 +12,36 @@ export function Sidebar() {
   const datasets = useDatasetStore((state) => state.datasets);
   const toggleDataset = useDatasetStore((state) => state.toggleDataset);
   const removeDataset = useDatasetStore((state) => state.removeDataset);
+  const parcelsVisible = useParcelStore((state) => state.visible);
+  const parcelsLoading = useParcelStore((state) => state.loading);
+  const parcelsError = useParcelStore((state) => state.error);
+  const toggleParcels = useParcelStore((state) => state.toggleVisible);
 
   const groups = useMemo(() => registry?.groups ?? [], [registry]);
 
   return (
     <section className="min-h-0 flex-1 overflow-y-auto">
       <DataImportPanel />
+      {activeDomain.id === 'fr-real-estate' ? (
+        <div className="border-b border-zola-line px-4 py-3">
+          <label className="flex cursor-pointer gap-3">
+            <input
+              aria-label="Toggle Cadastre parcels"
+              checked={parcelsVisible}
+              className="mt-1 h-4 w-4 accent-zola-accent"
+              onChange={toggleParcels}
+              type="checkbox"
+            />
+            <span className="min-w-0 flex-1">
+              <span className="text-sm font-medium leading-5">Cadastre parcels</span>
+              <span className="mt-1 block text-xs leading-4 text-zola-ink/60">
+                {parcelsLoading ? 'Loading visible parcels' : 'Loaded from the FastAPI/PostGIS parcel endpoint'}
+              </span>
+              {parcelsError ? <span className="mt-1 block text-xs text-red-700">{parcelsError}</span> : null}
+            </span>
+          </label>
+        </div>
+      ) : null}
       {datasets.length > 0 ? (
         <div className="divide-y divide-zola-line border-b border-zola-line">
           {datasets.map((dataset) => (
@@ -46,7 +72,7 @@ export function Sidebar() {
         </div>
       ) : null}
       <div className="border-b border-zola-line px-4 py-3">
-        <h2 className="text-sm font-semibold uppercase tracking-normal text-zola-ink/70">Layers</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-normal text-zola-ink/70">{activeDomain.layersTitle}</h2>
       </div>
       <div className="divide-y divide-zola-line">
         {groups.map((group) => {

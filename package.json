@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:fr": "vite --mode fr",
     "build": "tsc --noEmit && vite build",
+    "build:fr": "tsc --noEmit && vite build --mode fr",
     "preview": "vite preview",
     "legacy:start": "ember serve -dev",
     "legacy:build": "ember build --environment=production"
